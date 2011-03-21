@@ -27,7 +27,7 @@ Run the **setup** task and enter your project's namespace when prompted:
 	ant setup
 	Enter the full project namespace for this project: com.domain.project
 
-This will refactor the project template to match your namespace...
+This will refactor the project template to match your namespace. You'll then be given the option to *delete the GIT metadata* and disconnect from the Springboard repository...
 
 ###Now Start Coding!
 
