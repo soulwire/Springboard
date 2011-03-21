@@ -13,6 +13,7 @@
 	Usage:
 	
 	$ cd /project/directory/
+	$ ant setup
 	$ ant build
 	$ ant jsdoc
 	
@@ -89,6 +90,104 @@
 		</echo>
 		<delete dir="${BUILD_DIR}"/>
 		<mkdir dir="${BUILD_DIR}"/>
+	</target>
+	
+	<!--
+	
+		Refactors the default MVC template ready for use
+		
+	-->
+	
+	<target name="setup">
+		
+		<if>
+			<available file="${SRC_DIR}/js/namespace.js" />
+			<then>
+				
+				<input message="Enter the full project namespace for this project:" addproperty="namespace" />
+				
+				<script language="javascript">
+					<![CDATA[
+						var namespace = new String( project.getProperty( "namespace" ) );
+				
+						var valid = namespace.length > 1 && !/[^\.|\w]/g.test( namespace );
+						project.setProperty( "valid", valid );
+				
+						if( valid ) {
+					
+							var parts = namespace.split( '.' );
+							var setup = [];
+
+							while( parts.length > 0 ) {
+								setup.push( parts.join('.') + " = {};" );
+								parts.pop();
+							}
+
+							setup.reverse();
+							setup[0] = "var " + setup[0];
+							setup = setup.join( "\n" );
+
+							var domain = namespace.split( '.' );
+
+							if( domain.length > 1 ) {
+								domain.pop();	
+							}
+
+							setup = "/**\n * The root namespace\n * @const\n */\n" + setup;
+
+							project.setProperty( "domain", domain.join('.') );
+							project.setProperty( "setup", setup );
+						}
+					]]>
+				</script>
+				
+				<if>
+					<equals arg1="${valid}" arg2="true" />
+					<then>
+						
+						<echo>Injecting namespaces...
+						</echo>
+
+						<replaceregexp match="(\W)namespace.project(\W)" flags="g" replace="\1${namespace}\2">
+							<fileset dir="${SRC_DIR}" includes="**/*" />
+						</replaceregexp>
+
+						<replaceregexp match="(\W)namespace(\W)" flags="g" replace="\1${domain}\2">
+							<fileset dir="${SRC_DIR}" includes="**/*" />
+						</replaceregexp>
+
+						<echo>Renaming files...
+						</echo>
+
+						<move verbose="true" todir="${SRC_DIR}"> 
+							<regexpmapper from="^(.*?)namespace\.project\.(.*+)" to="\1${namespace}.\2" />
+							<fileset dir="${SRC_DIR}" includes="**/*" />
+						</move>
+
+						<move verbose="true" todir="${SRC_DIR}"> 
+							<regexpmapper from="^(.*?)namespace\.(.*+)" to="\1${domain}.\2" />
+							<fileset dir="${SRC_DIR}" includes="**/*" />
+						</move>
+
+						<echo>Adding namespace setup...
+						</echo>
+
+						<echo message="${setup}" output="${SRC_DIR}/js/${domain}.js" />
+						
+					</then>
+					<else>
+						
+						<echo>Invalid namespace "${namespace}"
+						</echo>
+						
+					</else>
+				</if>
+			</then>
+			<else>
+				<echo>Error: Setup has already been run</echo>
+			</else>
+		</if>
+		
 	</target>
 
 	<!--
