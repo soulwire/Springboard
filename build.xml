@@ -349,7 +349,7 @@
 						
 						// strip blank lines
 						
-						content = content.replace( /[\r\n]^\W+$/gm, '' );
+						content = content.replace( /[\r\n]^\s+$/gm, '' );
 						
 						// update properties
 						
