@@ -1,0 +1,909 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2011 Justin Windle
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
+
+import os
+import re
+import sys
+import getopt
+import fnmatch
+import logging
+import platform
+import fileinput
+import subprocess
+import webbrowser
+from shutil import copy, copyfileobj, copytree, ignore_patterns, rmtree
+
+# --------------------------------------------------
+#
+# Config
+#
+# --------------------------------------------------
+
+
+class Config:
+
+    # Determine operating system
+    sys = platform.system()
+
+    # Set system alias
+    if sys in ('Windows', 'Microsoft'):
+        OS = 'win'
+    elif sys in ('Darwin'):
+        OS = 'mac'
+    elif sys in ('Linux'):
+        OS = 'linux'
+    else:
+        OS = 'other'
+
+    # User directory
+    USER_HOME = os.getenv('USERPROFILE') or os.getenv('HOME')
+
+    # Springboard install directory
+    SPRINGBOARD_HOME = os.path.join(USER_HOME, 'local', 'springboard')
+
+    # Path to Closure compiler
+    PATH_COMPILER = os.path.join(SPRINGBOARD_HOME, 'tools', 'compiler.jar')
+
+    # Path to YUI compressor
+    PATH_COMPRESSOR = os.path.join(SPRINGBOARD_HOME, 'tools', 'compressor.jar')
+
+    # Default path to config file
+    CONFIG_PATH = os.path.join(os.getcwd(), '.sbconfig')
+
+    # Closure externs
+    EXTERNS_FILES = None
+
+    # Path to project source
+    SOURCE_PATH = 'source'
+
+    # Path to built project
+    DEPLOY_PATH = 'deploy'
+
+    # Path to project templates
+    TEMPLATE_PATH = 'templates'
+
+    # Prefix for tool commands
+    COMMAND_PREFIX = 'sb'
+
+    # Break lines at this column
+    CSS_LINE_BREAK = 0
+
+    # Project template to clone
+    PROJECT_TEMPLATE = 'default'
+
+    # Closure compiler compilation level
+    COMPILATION_LEVEL = 'ADVANCED_OPTIMIZATIONS'
+
+    # Closure / YUI Warning level
+    WARNING_LEVEL = 'VERBOSE'
+
+    # Additional Closure Compiler arguments
+    COMPILER_ARGS = ''
+
+    # Pattern for junk files to remove from deploy.
+    REMOVE = ''
+
+    # --------------------------------------------------
+    #
+    # Sets arguments from config file (if found) and
+    # extends them with any command line arguments
+    #
+    # --------------------------------------------------
+
+    def init(arguments):
+
+        # Load custom config file if specified
+
+        try:
+
+            options, more = getopt.getopt(arguments, 'c:s:d:t:', ['config=', 'source=', 'deploy=', 'template='])
+
+            for option, value in options:
+
+                if option in ('-c', '--config'):
+
+                    Config.CONFIG_PATH = os.path.join(os.getcwd(), value)
+
+        except getopt.GetoptError, error:
+
+            console.info(str(error))
+
+        # Override default options with loaded config
+
+        if os.path.exists(Config.CONFIG_PATH):
+
+            lines = open(Config.CONFIG_PATH, 'r')
+
+            for line in lines:
+
+                result = RegEx.CONFIG_OPTION.search(line)
+
+                if result:
+
+                    setattr(Config, result.group(1), result.group(2))
+
+        # Override loaded options with command line arguments
+
+        for option, value in options:
+
+                if option in ('-s', '--source'):
+
+                    Config.SOURCE_PATH = value
+
+                if option in ('-d', '--deploy'):
+
+                    Config.DEPLOY_PATH = value
+
+                if option in ('-t', '--template'):
+
+                    Config.PROJECT_TEMPLATE = value
+
+    # --------------------------------------------------
+    #
+    # Define API
+    #
+    # --------------------------------------------------
+
+    init = staticmethod(init)
+
+
+# --------------------------------------------------
+#
+# Regular Expressions
+#
+# --------------------------------------------------
+
+class RegEx():
+
+    # --------------------------------------------------
+    #
+    # Compiles all available regular expressions
+    #
+    # --------------------------------------------------
+
+    def compile():
+
+        # Files to parse for blocks during build
+        RegEx.BUILD_TYPES = re.compile('\.(html|html|js|php)$')
+
+        # Matches options in the config file
+        RegEx.CONFIG_OPTION = re.compile('([^\=\s]+)\s+\=\s+(.+)')
+
+        # Matches an embedded / linked file pattern
+        RegEx.LINKED_FILE = re.compile('([\w\/\-\.]+\.\w{2,4})')
+
+        # The start of a task block
+        RegEx.BLOCK_START = re.compile('\W+%s:\s+(%s|show|hide)(\s+([\w\/\-\.]+\.\w{2,4}))?' % (Config.COMMAND_PREFIX, r'|'.join(Tools.API)))
+
+        # The end of a task block
+        RegEx.BLOCK_END = re.compile('^%s|\W+%s:\s+end' % (Config.COMMAND_PREFIX, Config.COMMAND_PREFIX))
+
+    # --------------------------------------------------
+    #
+    # Define API
+    #
+    # --------------------------------------------------
+
+    compile = staticmethod(compile)
+
+
+# --------------------------------------------------
+#
+# Utils
+#
+# --------------------------------------------------
+
+class Utils():
+
+    # --------------------------------------------------
+    #
+    # Formats and prints an action which operates on
+    # input files to produce one output file
+    #
+    # --------------------------------------------------
+
+    def logAction(action, files, output):
+
+        files = Utils.normalisePaths(files, Config.SOURCE_PATH)
+        output = os.path.basename(output)
+        console.info('%s:\t%s\n\t\t--> %s\n' % (action, files, output))
+
+    # --------------------------------------------------
+    #
+    # Calls a method on a class using a string
+    # representation of the method and returns whether
+    # or not the call was successful
+    #
+    # --------------------------------------------------
+
+    def callMethod(owner, name, *args):
+
+        method = None
+
+        try:
+
+            method = getattr(owner, name)
+
+        except AttributeError:
+
+            console.error('%s has no method "%s"' % (owner, name))
+            return False
+
+        # If method exists and is a function
+        if method and hasattr(method, '__call__'):
+
+            method(*args)
+
+        return True
+
+    # --------------------------------------------------
+    #
+    # Generator to recursively finds files whose
+    # extension matches a certain pattern regex
+    #
+    # --------------------------------------------------
+
+    def findFiles(directory, pattern):
+
+        for root, dirs, files in os.walk(directory):
+
+            for basename in files:
+
+                if pattern.search(basename):
+
+                    filename = os.path.join(root, basename)
+
+                    yield filename
+
+    # --------------------------------------------------
+    #
+    # Returns a list of paths, normalised to their own
+    # directory or a specified base path
+    #
+    # --------------------------------------------------
+
+    def normalisePaths(paths, base=None):
+
+        result = []
+
+        for path in paths:
+
+            if base:
+
+                result.append(re.sub('^/|/$', '', path.replace(base, '')))
+
+            else:
+
+                result.append(os.path.basename(path))
+
+        return r', '.join(result)
+
+    # --------------------------------------------------
+    #
+    # Recursively copies files from one location to
+    # another with optional include or exclude patterns
+    #
+    # --------------------------------------------------
+
+    def copyTree(source, target, includes=[], excludes=[]):
+
+        # Always exclude these file types
+        excludes.append('.DS_Store')
+
+        # transform glob patterns to regular expressions
+        includes = r'|'.join([fnmatch.translate(x) for x in includes])
+        excludes = r'|'.join([fnmatch.translate(x) for x in excludes]) or r'$.'
+
+        for root, dirs, files in os.walk(source):
+
+            # exclude directories matching exclude patterns
+            dirs[:] = [os.path.join(root, d) for d in dirs]
+            dirs[:] = [d for d in dirs if not re.match(excludes, os.path.basename(d))]
+
+            # exclude / include files
+            files = [os.path.join(root, f) for f in files]
+            files = [f for f in files if not re.match(excludes, os.path.basename(f))]
+            files = [f for f in files if re.match(includes, os.path.basename(f))]
+
+            # Merge paths and copy
+            for fname in files:
+
+                # Find relative paths in target
+                fpath = os.path.join(target, os.path.relpath(fname, source))
+                dpath = os.path.dirname(fpath)
+
+                # Create directory structure if required
+                if not os.path.exists(dpath):
+                    os.makedirs(dpath)
+
+                # Copy the file
+                copy(fname, fpath)
+
+    # --------------------------------------------------
+    #
+    # Define API
+    #
+    # --------------------------------------------------
+
+    normalisePaths = staticmethod(normalisePaths)
+    callMethod = staticmethod(callMethod)
+    findFiles = staticmethod(findFiles)
+    logAction = staticmethod(logAction)
+    copyTree = staticmethod(copyTree)
+
+
+# --------------------------------------------------
+#
+# Tools
+#
+# --------------------------------------------------
+
+class Tools():
+
+    # List of available method names
+    API = ['concat', 'minify', 'compile']
+
+    # --------------------------------------------------
+    #
+    # Concatenates a list of files into a single output
+    #
+    # --------------------------------------------------
+
+    def concat(paths, output):
+
+        Utils.logAction('Concatenating', paths, output)
+
+        # Open the destination file
+        merged = open(output, 'wb')
+
+        # Loop through all target files
+        for path in paths:
+
+            # Write the file contents into destination
+            copyfileobj(open(path, 'rb'), merged)
+            merged.write('\n')
+
+        # Close the merged file
+        merged.close()
+
+    # --------------------------------------------------
+    #
+    # Minifies a list of files into a single output
+    # using YUI Compressor
+    #
+    # --------------------------------------------------
+
+    def minify(paths, output):
+
+        Utils.logAction('Minifying', paths, output)
+
+        # Loop through all target files
+        for path in paths:
+
+            # Pipe file into output and minify
+            process = subprocess.Popen('java -jar %s --type css --line-break %s %s >> %s' % (
+                Config.PATH_COMPRESSOR,
+                Config.CSS_LINE_BREAK,
+                path,
+                output
+            ), shell=True)
+
+            # Show output
+            process.communicate()
+
+    # --------------------------------------------------
+    #
+    # Compiles a list of files into a single output
+    # using Google Closure Compiler
+    #
+    # --------------------------------------------------
+
+    def compile(paths, output):
+
+        Utils.logAction('Compiling', paths, output)
+
+        # Formatted list
+        scripts = ' --js '.join(paths)
+
+        # Construct arguments
+        options = [
+            'java',
+            '-jar', Config.PATH_COMPILER,
+            '--js', scripts,
+            '--js_output_file', output,
+            '--compilation_level', Config.COMPILATION_LEVEL,
+            '--warning_level', Config.WARNING_LEVEL,
+            Config.COMPILER_ARGS
+        ]
+
+        # Add externs if specified
+        if Config.EXTERNS_FILES:
+
+            for extern in Config.EXTERNS_FILES.split(','):
+
+                options += ['--externs', os.path.join(Config.SOURCE_PATH, extern)]
+
+        # Tell Closure Compiler to process all scripts
+        process = subprocess.Popen(' '.join(options), shell=True)
+
+        # Show output
+        process.communicate()
+
+    # --------------------------------------------------
+    #
+    # Define API
+    #
+    # --------------------------------------------------
+
+    concat = staticmethod(concat)
+    minify = staticmethod(minify)
+    compile = staticmethod(compile)
+
+
+# --------------------------------------------------
+#
+# Springboard
+#
+# --------------------------------------------------
+
+class Springboard():
+
+    LOGO = '''
+ ___          _           _                      _
+/ __|_ __ _ _(_)_ _  __ _| |__  ___  __ _ _ _ __| |
+\__ \ '_ \ '_| | ' \/ _` | '_ \/ _ \/ _` | '_/ _` |
+|___/ .__/_| |_|_||_\__, |_.__/\___/\__,_|_| \__,_|
+    |_|             |___/
+    '''
+
+    HELP = LOGO + '''
+Usage:
+
+    $ sb command [options]
+
+Commands:
+
+    install     Installs Springboard and command line aliases
+    config      Opens the project templates directory for customising
+    init        Initialises a project in the current directory (copies in template files)
+                    -t, --template   The name of the template to use (optional) (Defaults to 'default')
+    build       Builds the current project
+                    -c, --config     Springboard config path (optional) (Defaults to '.sbconfig')
+                    -s, --source     Project source location (optional) (Defaults to 'source')
+                    -d, --deploy     Project output location (optional) (Defaults to 'deploy')
+    help        Displays help
+    '''
+
+    # --------------------------------------------------
+    #
+    # Outputs the help documentation for Springboard
+    #
+    # --------------------------------------------------
+
+    def help():
+
+        console.info(Springboard.HELP)
+
+    # --------------------------------------------------
+    #
+    # Installs Springboard & create command line aliases
+    #
+    # --------------------------------------------------
+
+    def install():
+
+        console.info(Springboard.LOGO)
+        console.info('Installing Springboard to "%s"...' % Config.SPRINGBOARD_HOME)
+
+        # Try to detect subsequent installs
+        firstInstall = True
+
+        # Output messages
+        messages = []
+
+        # Install from here
+        source = os.getcwd()
+
+        # Path to installed script (assumes same name as current script)
+        script = os.path.join(Config.SPRINGBOARD_HOME, os.path.basename(__file__))
+
+        # Copy Springboard files
+        if os.path.exists(os.path.join(Config.SPRINGBOARD_HOME, Config.TEMPLATE_PATH)):
+
+            # Copy files but ignore existing templates
+            Utils.copyTree(source, Config.SPRINGBOARD_HOME, [], [Config.TEMPLATE_PATH, '.git'])
+
+            # Not the first install if templates exist
+            firstInstall = False
+
+        else:
+
+            # Copy all files and templates
+            Utils.copyTree(source, Config.SPRINGBOARD_HOME, [], ['.git'])
+
+        # For Mac, add alias to BASH profile
+        if Config.OS == 'mac':
+
+            # Make script executable
+            subprocess.call(['chmod', 'a+x', script])
+
+            # Path top bash_profile
+            bash = os.path.join(Config.USER_HOME, '.bash_profile')
+
+            if not os.path.exists(bash):
+                doc = open(bash, 'w+')
+                doc.close()
+
+            if os.path.exists(bash):
+
+                # Read the current contents
+                doc = open(bash, 'r')
+                txt = doc.read()
+                doc.close()
+
+                # Check for existing aliases
+                if not re.compile(r'alias (sb|springboard)').search(txt):
+
+                    console.info('Adding aliases (%s, %s) to "%s"' % ('springboard', 'sb', bash))
+
+                    # Create bash session aliases
+                    subprocess.call(['alias', 'springboard=%s' % script])
+                    subprocess.call(['alias', 'sb=%s' % script])
+
+                    # Add Springboard aliases
+                    doc = open(bash, 'a')
+                    doc.write('\n# Springboard')
+                    doc.write('\nalias springboard="%s"' % script)
+                    doc.write('\nalias sb="%s"' % script)
+                    doc.write('\nexport SPRINGBOARD_HOME="%s"' % Config.SPRINGBOARD_HOME)
+                    doc.write('\nexport PATH=$PATH:$SPRINGBOARD_HOME')
+                    doc.close()
+
+                    # Aliases availbale in new BASH session
+                    messages.append('Start a new BASH session to start using Springboard :)')
+
+        elif Config.OS == 'win':
+
+            console.info('Install for windows')
+            # subprocess.call(['setx', 'sb', script])
+            # Write a bat file to run Springboard
+            # Add to PATH variable
+
+        # Print status
+        for message in ['', 'Springboard successful installed!'] + messages + ['']:
+            console.info('\t%s' % message)
+
+        # Open the default template in a browser.
+        if firstInstall:
+            target = os.path.join(Config.SPRINGBOARD_HOME, Config.TEMPLATE_PATH, 'default', 'source', 'index.html')
+            webbrowser.open('file://' + target)
+
+    # --------------------------------------------------
+    #
+    # 
+    # 
+    #
+    # --------------------------------------------------
+
+    def config():
+        target = os.path.join(Config.SPRINGBOARD_HOME, Config.TEMPLATE_PATH)
+        subprocess.call(["open", "-R", target])
+
+    # --------------------------------------------------
+    #
+    # Initialises a Springboard project in the current
+    # directory using a given template if specified
+    #
+    # --------------------------------------------------
+
+    def init():
+
+        console.info('\nSpringboard >> init\n')
+
+        # Determine paths
+        root = os.path.join(Config.SPRINGBOARD_HOME, Config.TEMPLATE_PATH)
+        path = os.path.join(root, Config.PROJECT_TEMPLATE)
+        dest = os.getcwd()
+
+        # If the template exists
+        if os.path.exists(path):
+
+            # Clone template into the current working directory
+            console.info('Cloning template "%s" into "%s"' % (Config.PROJECT_TEMPLATE, dest))
+            Utils.copyTree(path, dest)
+            console.info('Ok, start coding! :)')
+
+        else:
+
+            # If there's no tempate matching the specified name
+            console.info('Cannot find template "%s" in "%s"' % (Config.PROJECT_TEMPLATE, root))
+
+    # --------------------------------------------------
+    #
+    # Builds the current project
+    #
+    # --------------------------------------------------
+
+    def build():
+
+        console.info('\nSpringboard >> build\n')
+
+        # Return if source path doesn't exist
+        if not os.path.exists(Config.SOURCE_PATH):
+
+            console.info('Source directory "%s" not found in "%s"' % (Config.SOURCE_PATH, os.getcwd()))
+            return
+
+        # Create / empty deploy directory
+        if not os.path.exists(Config.DEPLOY_PATH):
+
+            os.makedirs(Config.DEPLOY_PATH)
+
+        # Files for processing
+        stack = {}
+
+        # Process queue
+        queue = []
+
+        # Current output path
+        output = None
+
+        # Current task
+        process = None
+
+        # If we're stacking files
+        stacking = False
+
+        # Processed files
+        processed = []
+
+        # Redundant files
+        redundancies = []
+
+        # Format to embed resources
+        embed_format = None
+
+        # Remove current output
+        rmtree(Config.DEPLOY_PATH)
+
+        # Copy all files to deploy
+        copytree(Config.SOURCE_PATH, Config.DEPLOY_PATH, ignore=ignore_patterns('*.svn', '.DS_Store'))
+
+        # Parse each target marked for building
+        for target in Utils.findFiles(Config.DEPLOY_PATH, RegEx.BUILD_TYPES):
+
+            # Current line number
+            line_num = 0
+
+            # Current block start line
+            open_line_num = 0
+
+            # Step through the file
+            for line in fileinput.input(target, inplace=1):
+
+                line_num += 1
+
+                # Are we collecting files?
+                if stacking:
+
+                    # Check for an ending block
+                    if RegEx.BLOCK_END.match(line):
+
+                        stacking = False
+
+                        # Create process if output is specified
+                        if output:
+
+                            # Use the last embed code as a template to link the output
+                            embed = re.sub(RegEx.LINKED_FILE, output, embed_format)
+
+                            # Get the list of inputs
+                            files = stack[output]
+
+                            # Map output to the deploy directory
+                            output = Config.DEPLOY_PATH + '/' + output
+
+                            # If the block isn't empty
+                            if files:
+
+                                # Write in the embed tag after any indentation
+                                sys.stdout.write(embed)
+
+                            # For targets that haven't been processed
+                            if not output in processed:
+
+                                if files:
+
+                                    if process in Tools.API:
+
+                                        # Queue this block for processing
+                                        queue.append({
+                                            'process': process,
+                                            'output': output,
+                                            'files': files
+                                        })
+
+                                        # Mark this target processed
+                                        processed.append(output)
+                                else:
+
+                                    # Warn about empty blocks
+                                    console.info('Empty %s block found in "%s" on line %s' % (process, target, open_line_num))
+
+                    else:
+
+                        if process == 'show':
+
+                            # Write the line back in
+                            sys.stdout.write(line)
+
+                        elif output:
+
+                            # Extract path from linked resource
+                            path = RegEx.LINKED_FILE.search(line)
+
+                            if path:
+
+                                # This line is now the embed template
+                                embed_format = line
+
+                            if path:
+
+                                # Remap the path to deploy directory
+                                path_deploy = Config.DEPLOY_PATH + '/' + path.group(1)
+
+                                # Store the path in this blocks list
+                                stack[output].append(path_deploy)
+
+                                # Remove processed files after build
+                                if not path_deploy in redundancies:
+
+                                    redundancies.append(path_deploy)
+
+                else:
+
+                    # Does a block start on this line
+                    block_open = RegEx.BLOCK_START.match(line)
+
+                    if block_open:
+
+                        # Store the current line number
+                        open_line_num = line_num
+
+                        # The process to perform in this file list
+                        process = block_open.group(1)
+
+                        if block_open.group(3):
+
+                            # The path of the output
+                            output = block_open.group(3)
+
+                            # Trim whitespace
+                            output = output.strip()
+
+                        else:
+
+                            output = None
+
+                        # We haven't processed this file yet, so collect it's contents
+                        stacking = True
+
+                        # Create a new list of collected files
+                        stack[output] = []
+
+                    else:
+
+                        # Keep line content unmodified
+                        sys.stdout.write(line)
+
+            fileinput.close()
+
+        # Execute all queued tasks
+        for item in queue:
+
+            Utils.callMethod(Tools, item['process'], item['files'], item['output'])
+
+        # Delete redundant files
+        for path in redundancies:
+
+            if not path in processed:
+
+                if os.path.exists(path):
+
+                    os.remove(path)
+
+        # Remove files matching a certain pattern
+        for target in Utils.findFiles(Config.DEPLOY_PATH, re.compile(Config.REMOVE)):
+
+            os.remove(target)
+
+        # Delete externs
+        if Config.EXTERNS_FILES:
+
+            for extern in Config.EXTERNS_FILES.split(','):
+
+                extern = os.path.join(Config.DEPLOY_PATH, extern)
+
+                if os.path.exists(extern):
+
+                    os.remove(extern)
+
+        # Remove empty directories, deepest first
+        for path, dirs, files in os.walk(Config.DEPLOY_PATH, topdown=False):
+
+            # If there are no files or directories
+            if len(dirs) < 1 and len(files) < 1:
+
+                # Remove it
+                os.rmdir(path)
+
+        console.info('\nBuild complete!\n')
+
+    # --------------------------------------------------
+    #
+    # Define API
+    #
+    # --------------------------------------------------
+
+    install = staticmethod(install)
+    config = staticmethod(config)
+    build = staticmethod(build)
+    init = staticmethod(init)
+    help = staticmethod(help)
+
+# --------------------------------------------------
+#
+# Start
+#
+# --------------------------------------------------
+
+# Compile regex
+RegEx.compile()
+
+# Setup a console
+console = logging.getLogger()
+channel = logging.StreamHandler()
+
+console.setLevel(logging.DEBUG)
+console.addHandler(channel)
+
+# Grab command line arguments
+arguments = sys.argv[1:]
+
+if len(arguments) >= 1:
+
+    # Method is first argument
+    task = arguments[0].lower()
+
+    # Configure with remaining args
+    Config.init(arguments[1:])
+
+    # Call Springboard task, if it exists
+    if not Utils.callMethod(Springboard, task):
+
+        # If call fails, show help
+        Springboard.help()
+
+else:
+
+    # Show help if no arguments were provided
+    Springboard.help()

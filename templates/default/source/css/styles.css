@@ -1,0 +1,47 @@
+html, body {
+	background: #1b1b1b;
+	font-family: "Courier New", Courier, monospace;
+	font-size: 13px;
+	line-height: 1.4;
+}
+
+#container {
+	margin: 100px auto 0 auto;
+	color: #DDD;
+	width: 620px;
+}
+
+#container h1 {
+	color: #FFF;
+	margin: 25px 0;
+	font-size: 24px;
+	font-weight: 300;
+}
+
+#container h2 {
+	color: #FFF;
+	margin: 25px 0;
+	font-size: 18px;
+	font-weight: 300;
+}
+
+#container strong {
+	font-style: italic;
+}
+
+#container pre {
+	border: 1px solid #333;
+	background: #222;
+	margin: 20px 0;
+	padding: 15px;
+	color: #A9DA88;
+}
+
+#container a {
+	text-decoration: none;
+	color: #FE4365;
+}
+
+#container a:hover {
+	text-decoration: underline;
+}

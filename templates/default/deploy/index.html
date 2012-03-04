@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">	
+		<title>Welcome to Springboard!</title>
+
+		<!--
+			All files in the following block will be minified into libs.js
+		-->
+
+		<link rel="stylesheet" href="css/styles.min.css">
+
+	</head>
+	<body>
+		<div id="container">
+			<h1>Welcome to Springboard!</h1>
+			<p>Springboard is installed to:</p>
+			<pre class="sbpath"></pre>
+			<p>This is the default Springboard template, which you should now edit to suit your needs. You can also create new templates simply by adding them to the templates directory and then use them like so:</p>
+			<pre>$ cd /YourWorkspace/NewProject/
+$ sb init template-name</pre>
+			<p>To access the templates directory, just run the <strong>config</strong> command:</p>
+			<pre>$ sb config</pre>
+			<p>For more information, please refer to the <strong>README</strong> file in the repo: <a href="https://github.com/soulwire/Springboard">https://github.com/soulwire/Springboard</a></p>
+			<h2>Note</h2>
+			<p>The following message is set via JavaScript and will be <strong>true</strong> in the project source directory but <strong>false</strong> in deploy. This utilises Springboard's ability to show or hide blocks of code during the build process, useful in this instance for toggling a <em>DEBUG</em> flag automatically&hellip;</p>
+			<pre id="message"></pre>
+		</div>
+		
+		<!--
+			All files in the following block will be concatenated into libs.js
+		-->
+
+		<script type="text/javascript" src="js/libs.js"></script>
+
+		<!--
+			All files in the following block will be compiled into scripts.js
+			using Closure compiler
+		-->
+
+		<script type="text/javascript" src="js/scripts.js"></script>
+	</body>
+</html>

@@ -1,0 +1,23 @@
+# Project source path
+SOURCE_PATH = source
+
+# Project output path
+DEPLOY_PATH = deploy
+
+# Break line at this column (0 breaks after each rule)
+CSS_LINE_BREAK = 0
+
+# Externs file for Closure compiler
+EXTERNS_FILES = js/externs.js
+
+# Closure compiler compilation level
+COMPILATION_LEVEL = ADVANCED_OPTIMIZATIONS
+
+# Closure compiler warning level
+WARNING_LEVEL = VERBOSE
+
+# Any additional arguments
+COMPILER_ARGS = '--debug'
+
+# Regex for files to remove
+REMOVE = \.less$
