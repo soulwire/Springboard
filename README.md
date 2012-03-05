@@ -2,6 +2,10 @@
 
 Springboard helps you setup web projects in seconds and easily manage concatenation, minification and compilation of scripts and styles.
 
+The idea behind Springboard is to provide a universal build system for HTML/CSS/JS projects that works with your own project template library (whichever boilerplates you may use) and helps you get going with projects of any size quickly and easily.
+
+Here's how it works...
+
 # Blocks
 
 Blocks tell Springboard what to do with your scripts and styles when you build. Just tell it to **concat**, **minify** or **compile** and specify an output:
@@ -49,7 +53,7 @@ From within a project directory, invoke a build like so
 
 	$ springboard build
 
-To see all avaiable commands and options, just type
+To see all available commands and options, just type
 
 	$ springboard help
 
