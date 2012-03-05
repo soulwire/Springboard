@@ -27,6 +27,7 @@ Or conversely:
 # Installation
 
 	$ git clone git@github.com:soulwire/Springboard.git Springboard
+	$ cd Springboard
 	$ python springboard install
 
 ### Setup a new project
